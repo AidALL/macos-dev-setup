@@ -331,6 +331,22 @@ run_zshrc_template_self_test() {
   /bin/rm -rf "$temp_dir"
 }
 
+run_nfd2nfc_path_self_test() {
+  local temp_dir
+  local found
+
+  temp_dir="$(/usr/bin/mktemp -d)"
+  /bin/mkdir -p "$temp_dir/bin"
+  : > "$temp_dir/bin/nfd2nfc"
+  /bin/chmod +x "$temp_dir/bin/nfd2nfc"
+
+  PATH="$temp_dir/bin"
+  found="$(find_nfd2nfc)" || die "nfd2nfc path self-test failed."
+  [[ -x "$found" ]] || die "nfd2nfc path self-test returned a non-executable path: $found"
+
+  /bin/rm -rf "$temp_dir"
+}
+
 install_formula() {
   local formula="$1"
   if brew list --formula "$formula" >/dev/null 2>&1; then
@@ -434,8 +450,29 @@ configure_git_unicode() {
   git config --global core.quotepath false
 }
 
+find_nfd2nfc() {
+  local candidate
+
+  repair_path
+  if command -v nfd2nfc >/dev/null 2>&1; then
+    command -v nfd2nfc
+    return 0
+  fi
+
+  for candidate in /opt/homebrew/bin/nfd2nfc /usr/local/bin/nfd2nfc; do
+    if [[ -x "$candidate" ]]; then
+      printf '%s\n' "$candidate"
+      return 0
+    fi
+  done
+
+  return 1
+}
+
 configure_nfd2nfc_watcher() {
-  if ! command -v nfd2nfc >/dev/null 2>&1; then
+  local nfd2nfc_bin
+
+  if ! nfd2nfc_bin="$(find_nfd2nfc)"; then
     warn "nfd2nfc is not available; skipping background filename watcher."
     return
   fi
@@ -454,7 +491,7 @@ configure_nfd2nfc_watcher() {
   local -a nfc_watch_path_array
   nfc_watch_path_array=("${(@s/:/)paths_raw}")
 
-  existing_json="$(nfd2nfc config list --json 2>/dev/null || printf '[]')"
+  existing_json="$("$nfd2nfc_bin" config list --json 2>/dev/null || printf '[]')"
 
   for path in "${nfc_watch_path_array[@]}"; do
     [[ -n "$path" ]] || continue
@@ -471,12 +508,12 @@ configure_nfd2nfc_watcher() {
       continue
     fi
 
-    nfd2nfc config add "$expanded" --action watch --mode recursive || warn "Could not add nfd2nfc watch path: $expanded"
+    "$nfd2nfc_bin" config add "$expanded" --action watch --mode recursive || warn "Could not add nfd2nfc watch path: $expanded"
   done
 
-  nfd2nfc watcher restart || nfd2nfc watcher start || warn "Could not start nfd2nfc watcher."
+  "$nfd2nfc_bin" watcher restart || "$nfd2nfc_bin" watcher start || warn "Could not start nfd2nfc watcher."
 
-  warn "If macOS asks for permissions, grant Full Disk Access to the nfd2nfc-watcher binary shown by: which nfd2nfc-watcher"
+  warn "If macOS asks for permissions, grant Full Disk Access to the nfd2nfc-watcher binary shown by: command -v nfd2nfc-watcher"
 }
 
 write_nfc_filename_tool() {
@@ -785,6 +822,7 @@ AUTO_YES=0
 DRY_RUN=0
 SELF_TEST_PATH_REPAIR=0
 SELF_TEST_ZSHRC_TEMPLATE=0
+SELF_TEST_NFD2NFC_PATH=0
 
 if [[ -n "${ROSETTA+x}" ]]; then
   ROSETTA_CHOICE_SET=1
@@ -877,6 +915,9 @@ while [[ $# -gt 0 ]]; do
     --self-test-zshrc-template)
       SELF_TEST_ZSHRC_TEMPLATE=1
       ;;
+    --self-test-nfd2nfc-path)
+      SELF_TEST_NFD2NFC_PATH=1
+      ;;
     -h | --help)
       usage
       exit 0
@@ -896,6 +937,11 @@ fi
 
 if [[ "$SELF_TEST_ZSHRC_TEMPLATE" == "1" ]]; then
   run_zshrc_template_self_test
+  exit 0
+fi
+
+if [[ "$SELF_TEST_NFD2NFC_PATH" == "1" ]]; then
+  run_nfd2nfc_path_self_test
   exit 0
 fi
 

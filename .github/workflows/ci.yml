@@ -38,6 +38,9 @@ jobs:
       - name: Check generated zshrc template
         run: /bin/zsh install-dev-environment.sh --self-test-zshrc-template
 
+      - name: Check nfd2nfc path resolution
+        run: PATH=/usr/bin:/bin /bin/zsh install-dev-environment.sh --self-test-nfd2nfc-path
+
       - name: Check interactive Android decline
         run: |
           expect <<'EXPECT' | tee /tmp/macos-dev-setup-interactive.log
