@@ -1,7 +1,7 @@
 # macOS 개발환경 한방 설치 스크립트
 
 [![macOS](https://img.shields.io/badge/macOS-only-black)](#)
-[![Shell](https://img.shields.io/badge/shell-bash-blue)](#)
+[![Shell](https://img.shields.io/badge/shell-zsh%20default%20%2B%20bash%20compatible-blue)](#)
 
 새 Mac을 개발용으로 빠르게 세팅하는 bootstrap 스크립트입니다. Homebrew, VS Code, Chrome/Edge, Docker Desktop, Python, Git, Oh My Zsh, Oh My Posh, MesloLGS NF, 주요 CLI 도구, 선택형 AI/Web/iOS/Android 개발 도구를 설치하고 기본 셸 환경을 구성합니다.
 
@@ -24,26 +24,28 @@ cd macos-dev-setup
 터미널에서 안내를 보며 선택하려면:
 
 ```bash
-bash ./install-dev-environment.sh
+./install-dev-environment.sh
 ```
 
 추천 기본값으로 바로 설치하려면:
 
 ```bash
-bash ./install-dev-environment.sh --yes
+./install-dev-environment.sh --yes
 ```
 
 설치 전에 무엇이 설치되고 어떤 파일이 바뀌는지 확인하려면:
 
 ```bash
-bash ./install-dev-environment.sh --yes --dry-run
+./install-dev-environment.sh --yes --dry-run
 ```
 
 모든 프로필을 설치하려면:
 
 ```bash
-bash ./install-dev-environment.sh --all
+./install-dev-environment.sh --all
 ```
+
+스크립트는 macOS 기본 셸인 zsh를 기준으로 실행됩니다. `bash ./install-dev-environment.sh --yes`처럼 실행해도 내부에서 zsh로 넘겨 같은 방식으로 동작합니다.
 
 처음 실행하기 전에는 스크립트 내용을 한 번 읽어보는 것을 권장합니다. 이 스크립트는 Homebrew 패키지와 앱을 설치하고, `~/.zshrc`, Git 전역 설정, Oh My Zsh 설정을 변경합니다.
 
@@ -53,8 +55,9 @@ GitHub에서 바로 내려받아 실행하려면:
 mkdir -p ~/macos-dev-setup
 cd ~/macos-dev-setup
 curl -fsSL https://raw.githubusercontent.com/AidALL/macos-dev-setup/main/install-dev-environment.sh -o ./install-dev-environment.sh
-bash ./install-dev-environment.sh --yes --dry-run
-bash ./install-dev-environment.sh --yes
+chmod +x ./install-dev-environment.sh
+./install-dev-environment.sh --yes --dry-run
+./install-dev-environment.sh --yes
 ```
 
 ## 기본 설치 항목
@@ -97,8 +100,8 @@ Apple Silicon Mac의 기본 앱과 `arm64` Docker 이미지는 Rosetta 없이도
 인터랙티브 실행에서는 설명을 보여주고 설치 여부를 묻습니다. 비대화형 실행에서는 기본으로 켜집니다. 끄려면:
 
 ```bash
-ROSETTA=0 bash ./install-dev-environment.sh --yes
-bash ./install-dev-environment.sh --yes --no-rosetta
+ROSETTA=0 ./install-dev-environment.sh --yes
+./install-dev-environment.sh --yes --no-rosetta
 ```
 
 ## 한글 파일명 자소분리 대응
@@ -116,19 +119,19 @@ nfd2nfc를 설치하고 상주 감시 기능을 켜는 데 동의하십니까? [
 비대화형 실행에서는 기본으로 켜집니다. 끄려면:
 
 ```bash
-NFC_NORMALIZATION=0 bash install-dev-environment.sh --yes
+NFC_NORMALIZATION=0 ./install-dev-environment.sh --yes
 ```
 
 `nfd2nfc`는 설치하되 상주 감시만 끄려면:
 
 ```bash
-NFC_WATCH=0 bash install-dev-environment.sh --yes
+NFC_WATCH=0 ./install-dev-environment.sh --yes
 ```
 
 감시 경로를 바꾸려면:
 
 ```bash
-NFC_WATCH_PATHS="$HOME/Downloads:$HOME/Work" bash install-dev-environment.sh --yes
+NFC_WATCH_PATHS="$HOME/Downloads:$HOME/Work" ./install-dev-environment.sh --yes
 ```
 
 기존 파일명을 직접 점검하고 변환할 수도 있습니다.
@@ -149,6 +152,16 @@ which nfd2nfc-watcher
 ```
 
 위 명령으로 나온 경로를 System Settings의 Full Disk Access에 추가하세요.
+
+## 문제 해결
+
+`backup_path:3: command not found: mkdir`처럼 기본 명령을 찾지 못하는 에러가 나면, 현재 셸의 `PATH`가 깨졌거나 스크립트를 `source`로 실행한 경우일 수 있습니다. 최신 스크립트는 안전한 기본 `PATH`를 복구하고, zsh 기본 실행과 bash 실행 호환성을 모두 지원합니다.
+
+다시 실행할 때는 아래처럼 실행하세요.
+
+```bash
+./install-dev-environment.sh --yes
+```
 
 ## 안전장치
 

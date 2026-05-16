@@ -1,5 +1,31 @@
-#!/usr/bin/env bash
+#!/bin/zsh
+
+if [ -z "${ZSH_VERSION:-}" ]; then
+  if [ -n "${BASH_VERSION:-}" ] && [ "${BASH_SOURCE[0]:-}" != "$0" ]; then
+    printf 'error: this installer should be executed, not sourced.\n' >&2
+    printf 'try: ./install-dev-environment.sh --yes\n' >&2
+    return 1 2>/dev/null || exit 1
+  fi
+
+  if [ -x /bin/zsh ]; then
+    exec /bin/zsh "$0" "$@"
+  fi
+
+  printf 'error: this installer requires zsh, which is built into macOS.\n' >&2
+  exit 1
+fi
+
+if [[ "${ZSH_EVAL_CONTEXT:-}" == *:file ]]; then
+  printf 'error: this installer should be executed, not sourced.\n' >&2
+  printf 'try: ./install-dev-environment.sh --yes\n' >&2
+  return 1
+fi
+
+emulate -R zsh
 set -euo pipefail
+
+# Recover from shells that start the installer with a broken or empty PATH.
+export PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin${PATH:+:$PATH}"
 
 # One-shot installer for the macOS development setup created in this Codex session.
 # Installs:
@@ -37,7 +63,7 @@ die() {
 usage() {
   cat <<'USAGE'
 Usage:
-  bash install-dev-environment.sh [flags]
+  ./install-dev-environment.sh [flags]
 
 Default with no flags:
   interactive picker when running in a terminal
@@ -68,15 +94,65 @@ Environment:
   NFC_WATCH_PATHS   Colon-separated watcher paths; defaults to Desktop, Documents, Downloads
 
 Examples:
-  bash install-dev-environment.sh
-  bash install-dev-environment.sh --yes
-  bash install-dev-environment.sh --all
-  bash install-dev-environment.sh --dry-run
-  bash install-dev-environment.sh --web --ai
-  bash install-dev-environment.sh --ios
-  bash install-dev-environment.sh --and
-  NFC_WATCH_PATHS="$HOME/Downloads:$HOME/Work" bash install-dev-environment.sh --yes
+  ./install-dev-environment.sh
+  ./install-dev-environment.sh --yes
+  ./install-dev-environment.sh --all
+  ./install-dev-environment.sh --dry-run
+  ./install-dev-environment.sh --web --ai
+  ./install-dev-environment.sh --ios
+  ./install-dev-environment.sh --and
+  NFC_WATCH_PATHS="$HOME/Downloads:$HOME/Work" ./install-dev-environment.sh --yes
 USAGE
+}
+
+expand_tilde_path() {
+  local raw="$1"
+  case "$raw" in
+    "~")
+      printf '%s' "$HOME"
+      ;;
+    "~/"*)
+      printf '%s/%s' "$HOME" "${raw#"~/"}"
+      ;;
+    *)
+      printf '%s' "$raw"
+      ;;
+  esac
+}
+
+home_relative_path() {
+  local raw="$1"
+  case "$raw" in
+    "$HOME")
+      printf '~'
+      ;;
+    "$HOME"/*)
+      printf '~/%s' "${raw#"$HOME/"}"
+      ;;
+    *)
+      printf '%s' "$raw"
+      ;;
+  esac
+}
+
+home_relative_path_list() {
+  local raw="$1"
+  local -a parts
+  local part
+  local expanded
+  local output=""
+
+  parts=("${(@s/:/)raw}")
+  for part in "${parts[@]}"; do
+    [[ -n "$part" ]] || continue
+    expanded="$(expand_tilde_path "$part")"
+    if [[ -n "$output" ]]; then
+      output="$output:"
+    fi
+    output="$output$(home_relative_path "$expanded")"
+  done
+
+  printf '%s' "$output"
 }
 
 backup_path() {
@@ -102,7 +178,8 @@ clone_or_update() {
 
   if [[ -e "$dest" ]]; then
     mkdir -p "$BACKUP_DIR"
-    local moved="$BACKUP_DIR/$(basename "$dest")"
+    local moved
+    moved="$BACKUP_DIR/$(basename "$dest")"
     warn "$dest already exists but is not a git checkout; moving it to $moved"
     mv "$dest" "$moved"
   fi
@@ -227,26 +304,24 @@ configure_nfd2nfc_watcher() {
   info "Configuring nfd2nfc background watcher"
 
   local paths_raw="${NFC_WATCH_PATHS:-$HOME/Desktop:$HOME/Documents:$HOME/Downloads}"
-  local old_ifs="$IFS"
   local path
   local expanded
   local display_path
   local existing_json
-  IFS=':'
-  read -r -a NFC_WATCH_PATH_ARRAY <<< "$paths_raw"
-  IFS="$old_ifs"
+  local -a nfc_watch_path_array
+  nfc_watch_path_array=("${(@s/:/)paths_raw}")
 
   existing_json="$(nfd2nfc config list --json 2>/dev/null || printf '[]')"
 
-  for path in "${NFC_WATCH_PATH_ARRAY[@]}"; do
+  for path in "${nfc_watch_path_array[@]}"; do
     [[ -n "$path" ]] || continue
-    expanded="${path/#\~/$HOME}"
+    expanded="$(expand_tilde_path "$path")"
     if [[ ! -d "$expanded" ]]; then
       warn "nfd2nfc watch path does not exist; skipping: $expanded"
       continue
     fi
 
-    display_path="${expanded/#$HOME/~}"
+    display_path="$(home_relative_path "$expanded")"
     if command -v jq >/dev/null 2>&1 \
       && printf '%s' "$existing_json" | jq -e --arg path "$expanded" --arg display "$display_path" '.[] | select(.path == $path or .path == $display)' >/dev/null; then
       info "nfd2nfc already watches $display_path"
@@ -852,9 +927,10 @@ print_installation_plan() {
   local selected_casks=("${CORE_CASKS[@]}")
   local selected_npm=()
   local selected_extensions=("${CORE_VSCODE_EXTENSIONS[@]}")
-  local posh_theme_display="${POSH_THEME/#$HOME/~}"
-  local watch_paths_display="${NFC_WATCH_PATHS:-$HOME/Desktop:$HOME/Documents:$HOME/Downloads}"
-  watch_paths_display="${watch_paths_display//$HOME/~}"
+  local posh_theme_display
+  local watch_paths_display
+  posh_theme_display="$(home_relative_path "$POSH_THEME")"
+  watch_paths_display="$(home_relative_path_list "${NFC_WATCH_PATHS:-$HOME/Desktop:$HOME/Documents:$HOME/Downloads}")"
 
   if [[ "$INSTALL_NFC_TOOLS" == "1" ]]; then
     selected_formulae+=("${NFC_FORMULAE[@]}")

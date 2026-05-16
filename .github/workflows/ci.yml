@@ -11,8 +11,23 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Check shell syntax
-        run: bash -n install-dev-environment.sh
+      - name: Install zsh
+        run: sudo apt-get update && sudo apt-get install -y zsh
 
-      - name: Check dry-run plan
+      - name: Check zsh syntax
+        run: zsh -n install-dev-environment.sh
+
+      - name: Check default zsh dry-run plan
+        run: zsh install-dev-environment.sh --yes --dry-run
+
+      - name: Check executable dry-run plan
+        run: ./install-dev-environment.sh --yes --dry-run
+
+      - name: Check bash compatibility shim
         run: bash install-dev-environment.sh --yes --dry-run
+
+      - name: Check zsh dry-run with empty PATH
+        run: PATH= /bin/zsh install-dev-environment.sh --yes --dry-run
+
+      - name: Check bash compatibility shim with empty PATH
+        run: PATH= /bin/bash install-dev-environment.sh --yes --dry-run
