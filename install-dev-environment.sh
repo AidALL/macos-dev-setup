@@ -208,8 +208,16 @@ default_nfc_watch_paths() {
     "$HOME"/Dropbox*(N-/) \
     "$HOME"/Box*(N-/) \
     "$HOME"/Creative\ Cloud\ Files*(N-/) \
+    "$HOME"/Adobe\ Creative\ Cloud\ Files*(N-/) \
     "$HOME"/Nextcloud*(N-/) \
-    "$HOME"/SynologyDrive*(N-/); do
+    "$HOME"/ownCloud*(N-/) \
+    "$HOME"/pCloud*(N-/) \
+    "$HOME"/MEGA*(N-/) \
+    "$HOME"/MegaSync*(N-/) \
+    "$HOME"/Resilio\ Sync*(N-/) \
+    "$HOME"/Seafile*(N-/) \
+    "$HOME"/SynologyDrive*(N-/) \
+    "$HOME"/Synology\ Drive*(N-/); do
     append_existing_watch_path "$candidate"
   done
 
@@ -476,6 +484,12 @@ run_nfc_watch_path_self_test() {
     "$HOME/Library/CloudStorage/OneDrive-AidALL" \
     "$HOME/Library/Mobile Documents/com~apple~CloudDocs" \
     "$HOME/Dropbox" \
+    "$HOME/Synology Drive" \
+    "$HOME/MEGA" \
+    "$HOME/ownCloud" \
+    "$HOME/pCloud Drive" \
+    "$HOME/Resilio Sync" \
+    "$HOME/Seafile" \
     "$HOME/Custom Cloud"
   /bin/ln -s "$HOME/Library/CloudStorage/GoogleDrive-person@example.com" "$HOME/Google Drive"
 
@@ -487,6 +501,12 @@ run_nfc_watch_path_self_test() {
   assert_path_list_contains "$paths_raw" "$(/bin/realpath "$HOME/Library/CloudStorage/OneDrive-AidALL")"
   assert_path_list_contains "$paths_raw" "$(/bin/realpath "$HOME/Library/Mobile Documents/com~apple~CloudDocs")"
   assert_path_list_contains "$paths_raw" "$(/bin/realpath "$HOME/Dropbox")"
+  assert_path_list_contains "$paths_raw" "$(/bin/realpath "$HOME/Synology Drive")"
+  assert_path_list_contains "$paths_raw" "$(/bin/realpath "$HOME/MEGA")"
+  assert_path_list_contains "$paths_raw" "$(/bin/realpath "$HOME/ownCloud")"
+  assert_path_list_contains "$paths_raw" "$(/bin/realpath "$HOME/pCloud Drive")"
+  assert_path_list_contains "$paths_raw" "$(/bin/realpath "$HOME/Resilio Sync")"
+  assert_path_list_contains "$paths_raw" "$(/bin/realpath "$HOME/Seafile")"
   google_drive_target="$(/bin/realpath "$HOME/Library/CloudStorage/GoogleDrive-person@example.com")"
   [[ "$(printf '%s' "$paths_raw" | /usr/bin/grep -o "$google_drive_target" | /usr/bin/wc -l | /usr/bin/tr -d ' ')" == "1" ]] \
     || die "Google Drive symlink and CloudStorage target should not be added twice."
