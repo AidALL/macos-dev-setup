@@ -401,14 +401,35 @@ install_npm_global() {
   fi
 }
 
+path_contains() {
+  local needle="$1"
+  [[ ":$PATH:" == *":$needle:"* ]]
+}
+
+ensure_pipx_path() {
+  local pipx_bin_dir="$HOME/.local/bin"
+
+  if path_contains "$pipx_bin_dir"; then
+    info "pipx app path is already on PATH"
+    return
+  fi
+
+  info "Ensuring pipx app path exists"
+  pipx ensurepath || true
+  repair_path
+}
+
 install_vscode_extension() {
   local extension="$1"
+  local installed_extensions
+
   if ! command -v code >/dev/null 2>&1; then
     warn "VS Code CLI is not available yet; skipping extension $extension"
     return
   fi
 
-  if code --list-extensions | grep -Fxq "$extension"; then
+  installed_extensions="$(code --list-extensions 2>/dev/null || true)"
+  if [[ $'\n'"$installed_extensions"$'\n' == *$'\n'"$extension"$'\n'* ]]; then
     info "VS Code extension $extension is already installed"
   else
     code --install-extension "$extension" || warn "Could not install VS Code extension $extension"
@@ -583,31 +604,45 @@ PLIST
 }
 
 start_nfd2nfc_watcher() {
-  local nfd2nfc_bin="$1"
   local watcher_bin
   local plist
   local domain
   local service="io.github.elgar328.nfd2nfc"
-
-  if "$nfd2nfc_bin" watcher restart || "$nfd2nfc_bin" watcher start; then
-    return 0
-  fi
+  local service_state
+  local bootstrap_output
 
   if ! watcher_bin="$(find_nfd2nfc_watcher)"; then
     warn "Could not find nfd2nfc-watcher binary; watcher was not started."
     return 1
   fi
 
-  warn "nfd2nfc watcher command failed; creating LaunchAgent directly with $watcher_bin"
-
   plist="$HOME/Library/LaunchAgents/$service.plist"
   domain="gui/$(/usr/bin/id -u)"
   write_nfd2nfc_launch_agent_plist "$plist" "$watcher_bin" "$service"
 
-  /bin/launchctl bootout "$domain" "$plist" >/dev/null 2>&1 || true
-  /bin/launchctl bootstrap "$domain" "$plist" || return 1
+  service_state="$(/bin/launchctl print "$domain/$service" 2>/dev/null || true)"
+  if [[ "$service_state" == *"state = running"* && "$service_state" == *"program = $watcher_bin"* ]]; then
+    info "nfd2nfc watcher is already running"
+    return 0
+  fi
+
+  if [[ -z "$service_state" ]]; then
+    bootstrap_output="$(/bin/launchctl bootstrap "$domain" "$plist" 2>&1)" || {
+      warn "$bootstrap_output"
+      return 1
+    }
+  fi
+
   /bin/launchctl enable "$domain/$service" >/dev/null 2>&1 || true
   /bin/launchctl kickstart -k "$domain/$service" >/dev/null 2>&1 || true
+
+  service_state="$(/bin/launchctl print "$domain/$service" 2>/dev/null || true)"
+  if [[ "$service_state" == *"state = running"* ]]; then
+    info "nfd2nfc watcher is running"
+    return 0
+  fi
+
+  info "nfd2nfc watcher LaunchAgent is installed; macOS may report running state after a short delay"
 }
 
 configure_nfd2nfc_watcher() {
@@ -659,9 +694,9 @@ configure_nfd2nfc_watcher() {
   done
 
   remove_redundant_nfd2nfc_config "$nfd2nfc_bin" "$jq_bin"
-  start_nfd2nfc_watcher "$nfd2nfc_bin" || warn "Could not start nfd2nfc watcher."
+  start_nfd2nfc_watcher || warn "Could not start nfd2nfc watcher."
 
-  warn "If macOS asks for permissions, grant Full Disk Access to the nfd2nfc-watcher binary shown by: command -v nfd2nfc-watcher"
+  info "If macOS asks for permissions, grant Full Disk Access to the nfd2nfc-watcher binary shown by: command -v nfd2nfc-watcher"
 }
 
 write_nfc_filename_tool() {
@@ -1475,9 +1510,7 @@ fi
 ensure_code_cli
 
 if command -v pipx >/dev/null 2>&1; then
-  info "Ensuring pipx app path exists"
-  pipx ensurepath || true
-  repair_path
+  ensure_pipx_path
 fi
 
 configure_git_unicode
