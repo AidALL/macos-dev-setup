@@ -535,10 +535,10 @@ prompt_yes_no() {
     IFS= read -r answer
     answer="${answer:-$default_answer}"
     case "$answer" in
-      y | Y | yes | YES | "예" | "네" | "ㅇ")
+      y | Y | yes | Yes | YES | "예" | "네" | "응" | "ㅇ" | "ㅇㅇ")
         return 0
         ;;
-      n | N | no | NO | "아니오" | "아니요" | "ㄴ")
+      n | N | no | No | NO | "아니" | "아니오" | "아니요" | "ㄴ" | "ㄴㄴ")
         return 1
         ;;
       *)
@@ -561,16 +561,20 @@ Core is always installed:
 Choose extra profiles:
 INTRO
 
-  if prompt_yes_no "Install recommended default profiles? (AI + Web + SW)" "y"; then
-    enable_default_profiles
-  fi
+  if prompt_yes_no "Install every development profile? (AI + Web + SW + iOS + Android)" "n"; then
+    enable_all_profiles
+  else
+    if prompt_yes_no "Install recommended default profiles? (AI + Web + SW)" "y"; then
+      enable_default_profiles
+    fi
 
-  if prompt_yes_no "Install iOS helpers? (CocoaPods, SwiftLint, XcodeGen, Tuist, etc.)" "n"; then
-    INSTALL_IOS=1
-  fi
+    if prompt_yes_no "Install iOS helpers? (CocoaPods, SwiftLint, XcodeGen, Tuist, etc.)" "n"; then
+      INSTALL_IOS=1
+    fi
 
-  if prompt_yes_no "Install Android helpers? (Android Studio, platform-tools, Java, Gradle, Kotlin, Maven)" "n"; then
-    INSTALL_ANDROID=1
+    if prompt_yes_no "Install Android helpers? (Android Studio, platform-tools, Java, Gradle, Kotlin, Maven)" "n"; then
+      INSTALL_ANDROID=1
+    fi
   fi
 
   if [[ "$ROSETTA_CHOICE_SET" == "0" && "$(uname -s 2>/dev/null || true)" == "Darwin" && "$(uname -m 2>/dev/null || true)" == "arm64" ]]; then
@@ -598,10 +602,6 @@ NFCINTRO
       INSTALL_NFC_TOOLS=0
       INSTALL_NFC_WATCH=0
     fi
-  fi
-
-  if prompt_yes_no "Install absolutely everything? (equivalent to --all)" "n"; then
-    enable_all_profiles
   fi
 }
 

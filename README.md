@@ -92,6 +92,7 @@ chmod +x ./install-dev-environment.sh
 | `--no-nfc-watch` | `nfd2nfc`는 설치하되 상주 감시 기능만 끄기 |
 
 `--yes` 또는 비대화형 실행은 기본적으로 `core + --ai + --web + --sw`를 설치합니다.
+대화형 실행에서는 먼저 전체 프로필(`AI + Web + SW + iOS + Android`) 설치 여부를 묻고, 여기서 아니오를 선택한 경우에만 iOS/Android를 개별로 묻습니다.
 
 ## Rosetta 2와 Docker
 
