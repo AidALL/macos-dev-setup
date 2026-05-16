@@ -35,6 +35,9 @@ jobs:
       - name: Check PATH repair in backup helpers
         run: PATH=/opt/homebrew/bin /bin/zsh install-dev-environment.sh --self-test-path-repair
 
+      - name: Check generated zshrc template
+        run: /bin/zsh install-dev-environment.sh --self-test-zshrc-template
+
       - name: Check interactive Android decline
         run: |
           expect <<'EXPECT' | tee /tmp/macos-dev-setup-interactive.log

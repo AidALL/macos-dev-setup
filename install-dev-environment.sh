@@ -211,6 +211,126 @@ run_path_repair_self_test() {
   /bin/rm -rf "$temp_dir"
 }
 
+write_zshrc_config() {
+  local target="$1"
+  local temp_file
+
+  repair_path
+  temp_file="$(/usr/bin/mktemp "${TMPDIR:-/tmp}/macos-dev-zshrc.XXXXXX")"
+
+  cat > "$temp_file" <<'ZSHRC'
+# Path to your Oh My Zsh installation.
+export ZSH="$HOME/.oh-my-zsh"
+
+# Oh My Posh handles the prompt, so keep the Oh My Zsh theme disabled.
+ZSH_THEME=""
+
+# Make Homebrew tools available on Apple Silicon Macs.
+if [[ -x /opt/homebrew/bin/brew ]]; then
+  eval "$(/opt/homebrew/bin/brew shellenv)"
+elif [[ -x /usr/local/bin/brew ]]; then
+  eval "$(/usr/local/bin/brew shellenv)"
+fi
+
+# Make Homebrew Python's unversioned python/pip commands available.
+if [[ -n "${HOMEBREW_PREFIX:-}" && -d "$HOMEBREW_PREFIX/opt/python/libexec/bin" ]]; then
+  export PATH="$HOMEBREW_PREFIX/opt/python/libexec/bin:$PATH"
+fi
+
+# User-level Python tools installed by pipx live here.
+export PATH="$HOME/.local/bin:$PATH"
+
+# Java and Android SDK paths are enabled when those tools exist.
+if [[ -n "${HOMEBREW_PREFIX:-}" && -d "$HOMEBREW_PREFIX/opt/openjdk@21" ]]; then
+  export JAVA_HOME="$HOMEBREW_PREFIX/opt/openjdk@21"
+  export PATH="$JAVA_HOME/bin:$PATH"
+fi
+
+if [[ -d "$HOME/Library/Android/sdk" ]]; then
+  export ANDROID_HOME="$HOME/Library/Android/sdk"
+  export ANDROID_SDK_ROOT="$ANDROID_HOME"
+  export PATH="$ANDROID_HOME/platform-tools:$ANDROID_HOME/emulator:$ANDROID_HOME/cmdline-tools/latest/bin:$PATH"
+fi
+
+if command -v code >/dev/null 2>&1; then
+  export EDITOR="code --wait"
+else
+  export EDITOR="vim"
+fi
+
+# Keep more zsh history.
+HISTFILE="$HOME/.zsh_history"
+HISTSIZE=50000
+SAVEHIST=50000
+setopt APPEND_HISTORY
+setopt EXTENDED_HISTORY
+setopt HIST_IGNORE_DUPS
+setopt HIST_IGNORE_SPACE
+setopt SHARE_HISTORY
+
+# Extra completions must be available before Oh My Zsh runs compinit.
+if [[ -d "$ZSH/custom/plugins/zsh-completions/src" ]]; then
+  fpath=("$ZSH/custom/plugins/zsh-completions/src" $fpath)
+fi
+
+# Which plugins would you like to load?
+plugins=(
+  git
+  brew
+  macos
+  colored-man-pages
+  zsh-autosuggestions
+  zsh-syntax-highlighting
+)
+
+source "$ZSH/oh-my-zsh.sh"
+
+# Modern CLI integrations.
+if command -v fzf >/dev/null 2>&1; then
+  source <(fzf --zsh)
+fi
+
+if command -v zoxide >/dev/null 2>&1; then
+  eval "$(zoxide init zsh)"
+fi
+
+if command -v direnv >/dev/null 2>&1; then
+  eval "$(direnv hook zsh)"
+fi
+
+if command -v uv >/dev/null 2>&1; then
+  eval "$(uv generate-shell-completion zsh)"
+fi
+
+if command -v eza >/dev/null 2>&1; then
+  alias ls="eza --group-directories-first"
+  alias ll="eza -lah --git --group-directories-first"
+  alias la="eza -la --group-directories-first"
+fi
+
+# Oh My Posh prompt.
+if command -v oh-my-posh >/dev/null 2>&1; then
+  eval "$(oh-my-posh init zsh --config "$HOME/.config/oh-my-posh/pastel-p10k.omp.json")"
+fi
+ZSHRC
+
+  if ! /bin/zsh -n "$temp_file"; then
+    /bin/rm -f "$temp_file"
+    die "Generated zsh config is invalid; leaving $target unchanged."
+  fi
+
+  /bin/mv "$temp_file" "$target"
+}
+
+run_zshrc_template_self_test() {
+  local temp_dir
+
+  temp_dir="$(/usr/bin/mktemp -d)"
+  write_zshrc_config "$temp_dir/.zshrc"
+  /bin/zsh -n "$temp_dir/.zshrc"
+  /bin/rm -rf "$temp_dir"
+}
+
 install_formula() {
   local formula="$1"
   if brew list --formula "$formula" >/dev/null 2>&1; then
@@ -664,6 +784,7 @@ PROFILE_SELECTED=0
 AUTO_YES=0
 DRY_RUN=0
 SELF_TEST_PATH_REPAIR=0
+SELF_TEST_ZSHRC_TEMPLATE=0
 
 if [[ -n "${ROSETTA+x}" ]]; then
   ROSETTA_CHOICE_SET=1
@@ -753,6 +874,9 @@ while [[ $# -gt 0 ]]; do
     --self-test-path-repair)
       SELF_TEST_PATH_REPAIR=1
       ;;
+    --self-test-zshrc-template)
+      SELF_TEST_ZSHRC_TEMPLATE=1
+      ;;
     -h | --help)
       usage
       exit 0
@@ -767,6 +891,11 @@ done
 
 if [[ "$SELF_TEST_PATH_REPAIR" == "1" ]]; then
   run_path_repair_self_test
+  exit 0
+fi
+
+if [[ "$SELF_TEST_ZSHRC_TEMPLATE" == "1" ]]; then
+  run_zshrc_template_self_test
   exit 0
 fi
 
@@ -1321,104 +1450,10 @@ JSON
 backup_path "$HOME/.zshrc"
 
 info "Writing ~/.zshrc"
-cat > "$HOME/.zshrc" <<'ZSHRC'
-# Path to your Oh My Zsh installation.
-export ZSH="$HOME/.oh-my-zsh"
-
-# Oh My Posh handles the prompt, so keep the Oh My Zsh theme disabled.
-ZSH_THEME=""
-
-# Make Homebrew tools available on Apple Silicon Macs.
-if [[ -x /opt/homebrew/bin/brew ]]; then
-  eval "$(/opt/homebrew/bin/brew shellenv)"
-elif [[ -x /usr/local/bin/brew ]]; then
-  eval "$(/usr/local/bin/brew shellenv)"
-fi
-
-# Make Homebrew Python's unversioned python/pip commands available.
-if [[ -n "${HOMEBREW_PREFIX:-}" && -d "$HOMEBREW_PREFIX/opt/python/libexec/bin" ]]; then
-  export PATH="$HOMEBREW_PREFIX/opt/python/libexec/bin:$PATH"
-fi
-
-# User-level Python tools installed by pipx live here.
-export PATH="$HOME/.local/bin:$PATH"
-
-# Java and Android SDK paths are enabled when those tools exist.
-if [[ -n "${HOMEBREW_PREFIX:-}" && -d "$HOMEBREW_PREFIX/opt/openjdk@21" ]]; then
-  export JAVA_HOME="$HOMEBREW_PREFIX/opt/openjdk@21"
-  export PATH="$JAVA_HOME/bin:$PATH"
-fi
-
-if [[ -d "$HOME/Library/Android/sdk" ]]; then
-  export ANDROID_HOME="$HOME/Library/Android/sdk"
-  export ANDROID_SDK_ROOT="$ANDROID_HOME"
-  export PATH="$ANDROID_HOME/platform-tools:$ANDROID_HOME/emulator:$ANDROID_HOME/cmdline-tools/latest/bin:$PATH"
-fi
-
-if command -v code >/dev/null 2>&1; then
-  export EDITOR="code --wait"
-else
-  export EDITOR="vim"
-fi
-
-# Keep more zsh history.
-HISTFILE="$HOME/.zsh_history"
-HISTSIZE=50000
-SAVEHIST=50000
-setopt APPEND_HISTORY
-setopt EXTENDED_HISTORY
-setopt HIST_IGNORE_DUPS
-setopt HIST_IGNORE_SPACE
-setopt SHARE_HISTORY
-
-# Extra completions must be available before Oh My Zsh runs compinit.
-if [[ -d "$ZSH/custom/plugins/zsh-completions/src" ]]; then
-  fpath=("$ZSH/custom/plugins/zsh-completions/src" $fpath)
-fi
-
-# Which plugins would you like to load?
-plugins=(
-  git
-  brew
-  macos
-  colored-man-pages
-  zsh-autosuggestions
-  zsh-syntax-highlighting
-)
-
-source "$ZSH/oh-my-zsh.sh"
-
-# Modern CLI integrations.
-if command -v fzf >/dev/null 2>&1; then
-  source <(fzf --zsh)
-fi
-
-if command -v zoxide >/dev/null 2>&1; then
-  eval "$(zoxide init zsh)"
-fi
-
-if command -v direnv >/dev/null 2>&1; then
-  eval "$(direnv hook zsh)"
-fi
-
-if command -v uv >/dev/null 2>&1; then
-  eval "$(uv generate-shell-completion zsh)"
-fi
-
-if command -v eza >/dev/null 2>&1; then
-  alias ls="eza --group-directories-first"
-  alias ll="eza -lah --git --group-directories-first"
-  alias la="eza -la --group-directories-first"
-fi
-
-# Oh My Posh prompt.
-if command -v oh-my-posh >/dev/null 2>&1; then
-  eval "$(oh-my-posh init zsh --config "$HOME/.config/oh-my-posh/pastel-p10k.omp.json")"
-fi
-ZSHRC
+write_zshrc_config "$HOME/.zshrc"
 
 info "Validating zsh config"
-zsh -n "$HOME/.zshrc"
+/bin/zsh -n "$HOME/.zshrc"
 
 if command -v oh-my-posh >/dev/null 2>&1; then
   oh-my-posh print primary --config "$POSH_THEME" --shell zsh --plain >/dev/null
