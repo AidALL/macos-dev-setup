@@ -352,6 +352,23 @@ run_nfd2nfc_path_self_test() {
   /bin/rm -rf "$temp_dir"
 }
 
+run_nfd2nfc_plist_self_test() {
+  local temp_dir
+  local plist
+  local old_path="$PATH"
+
+  temp_dir="$(/usr/bin/mktemp -d)"
+  plist="$temp_dir/io.github.elgar328.nfd2nfc.plist"
+
+  PATH="/opt/homebrew/bin"
+  write_nfd2nfc_launch_agent_plist "$plist" "/opt/homebrew/bin/nfd2nfc-watcher" "io.github.elgar328.nfd2nfc"
+  PATH="$old_path"
+
+  [[ -s "$plist" ]] || die "nfd2nfc plist self-test produced an empty plist."
+  /usr/bin/grep -q "/opt/homebrew/bin/nfd2nfc-watcher" "$plist" || die "nfd2nfc plist self-test did not write the watcher path."
+  /bin/rm -rf "$temp_dir"
+}
+
 install_formula() {
   local formula="$1"
   if brew list --formula "$formula" >/dev/null 2>&1; then
@@ -530,29 +547,13 @@ remove_redundant_nfd2nfc_config() {
   done
 }
 
-start_nfd2nfc_watcher() {
-  local nfd2nfc_bin="$1"
-  local watcher_bin
-  local plist
-  local domain
-  local service="io.github.elgar328.nfd2nfc"
+write_nfd2nfc_launch_agent_plist() {
+  local plist="$1"
+  local watcher_bin="$2"
+  local service="$3"
 
-  if "$nfd2nfc_bin" watcher restart || "$nfd2nfc_bin" watcher start; then
-    return 0
-  fi
-
-  if ! watcher_bin="$(find_nfd2nfc_watcher)"; then
-    warn "Could not find nfd2nfc-watcher binary; watcher was not started."
-    return 1
-  fi
-
-  warn "nfd2nfc watcher command failed; creating LaunchAgent directly with $watcher_bin"
-
-  plist="$HOME/Library/LaunchAgents/$service.plist"
-  domain="gui/$(/usr/bin/id -u)"
-  /bin/mkdir -p "$HOME/Library/LaunchAgents"
-
-  cat > "$plist" <<PLIST
+  /bin/mkdir -p "$(/usr/bin/dirname "$plist")"
+  /bin/cat > "$plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -573,6 +574,35 @@ start_nfd2nfc_watcher() {
 </dict>
 </plist>
 PLIST
+
+  [[ -s "$plist" ]] || die "Generated nfd2nfc LaunchAgent plist is empty: $plist"
+
+  if [[ -x /usr/bin/plutil ]]; then
+    /usr/bin/plutil -lint "$plist" >/dev/null
+  fi
+}
+
+start_nfd2nfc_watcher() {
+  local nfd2nfc_bin="$1"
+  local watcher_bin
+  local plist
+  local domain
+  local service="io.github.elgar328.nfd2nfc"
+
+  if "$nfd2nfc_bin" watcher restart || "$nfd2nfc_bin" watcher start; then
+    return 0
+  fi
+
+  if ! watcher_bin="$(find_nfd2nfc_watcher)"; then
+    warn "Could not find nfd2nfc-watcher binary; watcher was not started."
+    return 1
+  fi
+
+  warn "nfd2nfc watcher command failed; creating LaunchAgent directly with $watcher_bin"
+
+  plist="$HOME/Library/LaunchAgents/$service.plist"
+  domain="gui/$(/usr/bin/id -u)"
+  write_nfd2nfc_launch_agent_plist "$plist" "$watcher_bin" "$service"
 
   /bin/launchctl bootout "$domain" "$plist" >/dev/null 2>&1 || true
   /bin/launchctl bootstrap "$domain" "$plist" || return 1
@@ -941,6 +971,7 @@ DRY_RUN=0
 SELF_TEST_PATH_REPAIR=0
 SELF_TEST_ZSHRC_TEMPLATE=0
 SELF_TEST_NFD2NFC_PATH=0
+SELF_TEST_NFD2NFC_PLIST=0
 
 if [[ -n "${ROSETTA+x}" ]]; then
   ROSETTA_CHOICE_SET=1
@@ -1036,6 +1067,9 @@ while [[ $# -gt 0 ]]; do
     --self-test-nfd2nfc-path)
       SELF_TEST_NFD2NFC_PATH=1
       ;;
+    --self-test-nfd2nfc-plist)
+      SELF_TEST_NFD2NFC_PLIST=1
+      ;;
     -h | --help)
       usage
       exit 0
@@ -1060,6 +1094,11 @@ fi
 
 if [[ "$SELF_TEST_NFD2NFC_PATH" == "1" ]]; then
   run_nfd2nfc_path_self_test
+  exit 0
+fi
+
+if [[ "$SELF_TEST_NFD2NFC_PLIST" == "1" ]]; then
+  run_nfd2nfc_plist_self_test
   exit 0
 fi
 
