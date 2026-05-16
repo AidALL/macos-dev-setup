@@ -334,15 +334,20 @@ run_zshrc_template_self_test() {
 run_nfd2nfc_path_self_test() {
   local temp_dir
   local found
+  local watcher_found
 
   temp_dir="$(/usr/bin/mktemp -d)"
   /bin/mkdir -p "$temp_dir/bin"
   : > "$temp_dir/bin/nfd2nfc"
+  : > "$temp_dir/bin/nfd2nfc-watcher"
   /bin/chmod +x "$temp_dir/bin/nfd2nfc"
+  /bin/chmod +x "$temp_dir/bin/nfd2nfc-watcher"
 
   PATH="$temp_dir/bin"
   found="$(find_nfd2nfc)" || die "nfd2nfc path self-test failed."
+  watcher_found="$(find_nfd2nfc_watcher)" || die "nfd2nfc-watcher path self-test failed."
   [[ -x "$found" ]] || die "nfd2nfc path self-test returned a non-executable path: $found"
+  [[ -x "$watcher_found" ]] || die "nfd2nfc-watcher path self-test returned a non-executable path: $watcher_found"
 
   /bin/rm -rf "$temp_dir"
 }
@@ -469,15 +474,125 @@ find_nfd2nfc() {
   return 1
 }
 
+find_nfd2nfc_watcher() {
+  local candidate
+
+  repair_path
+  if command -v nfd2nfc-watcher >/dev/null 2>&1; then
+    command -v nfd2nfc-watcher
+    return 0
+  fi
+
+  for candidate in /opt/homebrew/bin/nfd2nfc-watcher /usr/local/bin/nfd2nfc-watcher; do
+    if [[ -x "$candidate" ]]; then
+      printf '%s\n' "$candidate"
+      return 0
+    fi
+  done
+
+  return 1
+}
+
+find_jq() {
+  local candidate
+
+  repair_path
+  if command -v jq >/dev/null 2>&1; then
+    command -v jq
+    return 0
+  fi
+
+  for candidate in /opt/homebrew/bin/jq /usr/local/bin/jq /usr/bin/jq; do
+    if [[ -x "$candidate" ]]; then
+      printf '%s\n' "$candidate"
+      return 0
+    fi
+  done
+
+  return 1
+}
+
+remove_redundant_nfd2nfc_config() {
+  local nfd2nfc_bin="$1"
+  local jq_bin="$2"
+  local existing_json
+  local index
+  local -a redundant_indices
+
+  [[ -n "$jq_bin" ]] || return 0
+
+  existing_json="$("$nfd2nfc_bin" config list --json 2>/dev/null || printf '[]')"
+  redundant_indices=("${(@f)$("$jq_bin" -r '.[] | select(.status == "redundant") | .index' <<< "$existing_json" | /usr/bin/sort -rn)}")
+
+  for index in "${redundant_indices[@]}"; do
+    [[ -n "$index" ]] || continue
+    "$nfd2nfc_bin" config remove "$index" >/dev/null 2>&1 || warn "Could not remove redundant nfd2nfc config index: $index"
+  done
+}
+
+start_nfd2nfc_watcher() {
+  local nfd2nfc_bin="$1"
+  local watcher_bin
+  local plist
+  local domain
+  local service="io.github.elgar328.nfd2nfc"
+
+  if "$nfd2nfc_bin" watcher restart || "$nfd2nfc_bin" watcher start; then
+    return 0
+  fi
+
+  if ! watcher_bin="$(find_nfd2nfc_watcher)"; then
+    warn "Could not find nfd2nfc-watcher binary; watcher was not started."
+    return 1
+  fi
+
+  warn "nfd2nfc watcher command failed; creating LaunchAgent directly with $watcher_bin"
+
+  plist="$HOME/Library/LaunchAgents/$service.plist"
+  domain="gui/$(/usr/bin/id -u)"
+  /bin/mkdir -p "$HOME/Library/LaunchAgents"
+
+  cat > "$plist" <<PLIST
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>$service</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>$watcher_bin</string>
+  </array>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <dict>
+    <key>Crashed</key>
+    <true/>
+  </dict>
+</dict>
+</plist>
+PLIST
+
+  /bin/launchctl bootout "$domain" "$plist" >/dev/null 2>&1 || true
+  /bin/launchctl bootstrap "$domain" "$plist" || return 1
+  /bin/launchctl enable "$domain/$service" >/dev/null 2>&1 || true
+  /bin/launchctl kickstart -k "$domain/$service" >/dev/null 2>&1 || true
+}
+
 configure_nfd2nfc_watcher() {
   local nfd2nfc_bin
+  local jq_bin=""
 
   if ! nfd2nfc_bin="$(find_nfd2nfc)"; then
     warn "nfd2nfc is not available; skipping background filename watcher."
     return
   fi
 
-  if ! command -v jq >/dev/null 2>&1; then
+  if jq_bin="$(find_jq)"; then
+    :
+  else
+    jq_bin=""
     warn "jq is not available; skipping nfd2nfc watcher config duplicate checks."
   fi
 
@@ -491,6 +606,7 @@ configure_nfd2nfc_watcher() {
   local -a nfc_watch_path_array
   nfc_watch_path_array=("${(@s/:/)paths_raw}")
 
+  remove_redundant_nfd2nfc_config "$nfd2nfc_bin" "$jq_bin"
   existing_json="$("$nfd2nfc_bin" config list --json 2>/dev/null || printf '[]')"
 
   for path in "${nfc_watch_path_array[@]}"; do
@@ -502,16 +618,18 @@ configure_nfd2nfc_watcher() {
     fi
 
     display_path="$(home_relative_path "$expanded")"
-    if command -v jq >/dev/null 2>&1 \
-      && printf '%s' "$existing_json" | jq -e --arg path "$expanded" --arg display "$display_path" '.[] | select(.path == $path or .path == $display)' >/dev/null; then
+    if [[ -n "$jq_bin" ]] \
+      && printf '%s' "$existing_json" | "$jq_bin" -e --arg path "$expanded" --arg display "$display_path" '.[] | select(.path == $path or .path == $display)' >/dev/null; then
       info "nfd2nfc already watches $display_path"
       continue
     fi
 
     "$nfd2nfc_bin" config add "$expanded" --action watch --mode recursive || warn "Could not add nfd2nfc watch path: $expanded"
+    existing_json="$("$nfd2nfc_bin" config list --json 2>/dev/null || printf '[]')"
   done
 
-  "$nfd2nfc_bin" watcher restart || "$nfd2nfc_bin" watcher start || warn "Could not start nfd2nfc watcher."
+  remove_redundant_nfd2nfc_config "$nfd2nfc_bin" "$jq_bin"
+  start_nfd2nfc_watcher "$nfd2nfc_bin" || warn "Could not start nfd2nfc watcher."
 
   warn "If macOS asks for permissions, grant Full Disk Access to the nfd2nfc-watcher binary shown by: command -v nfd2nfc-watcher"
 }
