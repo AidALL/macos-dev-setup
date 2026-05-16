@@ -158,9 +158,17 @@ which nfd2nfc-watcher
 
 `backup_path:3: command not found: mkdir`처럼 기본 명령을 찾지 못하는 에러가 나면, 현재 셸의 `PATH`가 깨졌거나 스크립트를 `source`로 실행한 경우일 수 있습니다. 최신 스크립트는 안전한 기본 `PATH`를 복구하고, zsh 기본 실행과 bash 실행 호환성을 모두 지원합니다.
 
+저장소를 클론해서 쓰는 경우 먼저 최신 버전인지 확인하세요.
+
+```bash
+git -C ~/macos-dev-setup pull --ff-only origin main
+git -C ~/macos-dev-setup rev-parse --short HEAD
+```
+
 다시 실행할 때는 아래처럼 실행하세요.
 
 ```bash
+cd ~/macos-dev-setup
 ./install-dev-environment.sh --yes
 ```
 

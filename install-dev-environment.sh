@@ -24,8 +24,12 @@ fi
 emulate -R zsh
 set -euo pipefail
 
-# Recover from shells that start the installer with a broken or empty PATH.
-export PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin${PATH:+:$PATH}"
+# Recover from shells or path_helper runs that leave out macOS system paths.
+repair_path() {
+  export PATH="/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin${PATH:+:$PATH}"
+}
+
+repair_path
 
 # One-shot installer for the macOS development setup created in this Codex session.
 # Installs:
@@ -156,12 +160,14 @@ home_relative_path_list() {
 }
 
 backup_path() {
+  repair_path
+
   local path="$1"
   if [[ -e "$path" || -L "$path" ]]; then
-    mkdir -p "$BACKUP_DIR"
+    /bin/mkdir -p "$BACKUP_DIR"
     local name
-    name="$(basename "$path")"
-    cp -R "$path" "$BACKUP_DIR/$name"
+    name="$(/usr/bin/basename "$path")"
+    /bin/cp -R "$path" "$BACKUP_DIR/$name"
     info "Backed up $path to $BACKUP_DIR/$name"
   fi
 }
@@ -171,21 +177,38 @@ clone_or_update() {
   local dest="$2"
 
   if [[ -d "$dest/.git" ]]; then
-    info "Updating $(basename "$dest")"
+    info "Updating $(/usr/bin/basename "$dest")"
     git -C "$dest" pull --ff-only || warn "Could not fast-forward $dest; leaving it as-is."
     return
   fi
 
   if [[ -e "$dest" ]]; then
-    mkdir -p "$BACKUP_DIR"
+    repair_path
+    /bin/mkdir -p "$BACKUP_DIR"
     local moved
-    moved="$BACKUP_DIR/$(basename "$dest")"
+    moved="$BACKUP_DIR/$(/usr/bin/basename "$dest")"
     warn "$dest already exists but is not a git checkout; moving it to $moved"
-    mv "$dest" "$moved"
+    /bin/mv "$dest" "$moved"
   fi
 
-  info "Cloning $(basename "$dest")"
+  info "Cloning $(/usr/bin/basename "$dest")"
   git clone --depth=1 "$repo" "$dest"
+}
+
+run_path_repair_self_test() {
+  local temp_dir
+  local test_file
+
+  temp_dir="$(/usr/bin/mktemp -d)"
+  test_file="$temp_dir/nfc-filenames"
+  BACKUP_DIR="$temp_dir/backups"
+
+  : > "$test_file"
+  PATH="/opt/homebrew/bin"
+  backup_path "$test_file"
+
+  [[ -f "$BACKUP_DIR/nfc-filenames" ]] || die "PATH repair self-test failed."
+  /bin/rm -rf "$temp_dir"
 }
 
 install_formula() {
@@ -340,7 +363,8 @@ write_nfc_filename_tool() {
   local tool_dir="$HOME/.local/bin"
   local tool_path="$tool_dir/nfc-filenames"
 
-  mkdir -p "$tool_dir"
+  repair_path
+  /bin/mkdir -p "$tool_dir"
   backup_path "$tool_path"
 
   info "Writing Korean filename normalization helper: $tool_path"
@@ -493,7 +517,7 @@ if not apply:
 raise SystemExit(2 if skipped else 0)
 PY
 SH
-  chmod +x "$tool_path"
+  /bin/chmod +x "$tool_path"
 }
 
 enable_default_profiles() {
@@ -639,6 +663,7 @@ INSTALL_MINIMAL=0
 PROFILE_SELECTED=0
 AUTO_YES=0
 DRY_RUN=0
+SELF_TEST_PATH_REPAIR=0
 
 if [[ -n "${ROSETTA+x}" ]]; then
   ROSETTA_CHOICE_SET=1
@@ -725,6 +750,9 @@ while [[ $# -gt 0 ]]; do
     --dry-run)
       DRY_RUN=1
       ;;
+    --self-test-path-repair)
+      SELF_TEST_PATH_REPAIR=1
+      ;;
     -h | --help)
       usage
       exit 0
@@ -736,6 +764,11 @@ while [[ $# -gt 0 ]]; do
   esac
   shift
 done
+
+if [[ "$SELF_TEST_PATH_REPAIR" == "1" ]]; then
+  run_path_repair_self_test
+  exit 0
+fi
 
 if [[ "$PROFILE_SELECTED" == "0" ]]; then
   if [[ -t 0 && -t 1 ]]; then
@@ -1028,6 +1061,7 @@ if [[ -x /opt/homebrew/bin/brew ]]; then
 elif [[ -x /usr/local/bin/brew ]]; then
   eval "$(/usr/local/bin/brew shellenv)"
 fi
+repair_path
 
 command -v brew >/dev/null 2>&1 || die "Homebrew is still not available on PATH."
 
@@ -1111,6 +1145,7 @@ ensure_code_cli
 if command -v pipx >/dev/null 2>&1; then
   info "Ensuring pipx app path exists"
   pipx ensurepath || true
+  repair_path
 fi
 
 configure_git_unicode
@@ -1164,13 +1199,14 @@ else
 fi
 
 clone_or_update "https://github.com/ohmyzsh/ohmyzsh.git" "$ZSH_DIR"
-mkdir -p "$ZSH_CUSTOM_DIR/plugins"
+repair_path
+/bin/mkdir -p "$ZSH_CUSTOM_DIR/plugins"
 
 clone_or_update "https://github.com/zsh-users/zsh-autosuggestions.git" "$ZSH_CUSTOM_DIR/plugins/zsh-autosuggestions"
 clone_or_update "https://github.com/zsh-users/zsh-syntax-highlighting.git" "$ZSH_CUSTOM_DIR/plugins/zsh-syntax-highlighting"
 clone_or_update "https://github.com/zsh-users/zsh-completions.git" "$ZSH_CUSTOM_DIR/plugins/zsh-completions"
 
-mkdir -p "$POSH_CONFIG_DIR"
+/bin/mkdir -p "$POSH_CONFIG_DIR"
 backup_path "$POSH_THEME"
 
 info "Writing Oh My Posh theme: $POSH_THEME"

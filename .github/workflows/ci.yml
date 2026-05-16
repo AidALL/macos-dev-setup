@@ -32,6 +32,9 @@ jobs:
       - name: Check bash compatibility shim with empty PATH
         run: PATH= /bin/bash install-dev-environment.sh --yes --dry-run
 
+      - name: Check PATH repair in backup helpers
+        run: PATH=/opt/homebrew/bin /bin/zsh install-dev-environment.sh --self-test-path-repair
+
       - name: Check interactive Android decline
         run: |
           expect <<'EXPECT' | tee /tmp/macos-dev-setup-interactive.log
