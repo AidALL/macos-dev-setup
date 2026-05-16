@@ -95,7 +95,8 @@ Environment:
   ROSETTA=0          Skip Rosetta 2 installation on Apple Silicon
   NFC_NORMALIZATION=0 Skip nfd2nfc installation and background watcher
   NFC_WATCH=0       Skip the nfd2nfc background watcher in non-interactive runs
-  NFC_WATCH_PATHS   Colon-separated watcher paths; defaults to Desktop, Documents, Downloads
+  NFC_WATCH_PATHS   Override watcher paths; defaults to Desktop, Documents, Downloads, and detected cloud folders
+  NFC_EXTRA_WATCH_PATHS Append extra colon-separated watcher paths to the defaults
 
 Examples:
   ./install-dev-environment.sh
@@ -105,7 +106,7 @@ Examples:
   ./install-dev-environment.sh --web --ai
   ./install-dev-environment.sh --ios
   ./install-dev-environment.sh --and
-  NFC_WATCH_PATHS="$HOME/Downloads:$HOME/Work" ./install-dev-environment.sh --yes
+  NFC_EXTRA_WATCH_PATHS="$HOME/Work" ./install-dev-environment.sh --yes
 USAGE
 }
 
@@ -157,6 +158,82 @@ home_relative_path_list() {
   done
 
   printf '%s' "$output"
+}
+
+append_existing_watch_path() {
+  local candidate="$1"
+  local expanded
+  local canonical
+  local existing
+
+  expanded="$(expand_tilde_path "$candidate")"
+  [[ -d "$expanded" ]] || return 0
+  canonical="$(/bin/realpath "$expanded" 2>/dev/null || printf '%s' "$expanded")"
+
+  for existing in "${NFC_DEFAULT_WATCH_PATHS[@]}"; do
+    [[ "$existing" == "$canonical" ]] && return 0
+  done
+
+  NFC_DEFAULT_WATCH_PATHS+=("$canonical")
+}
+
+join_colon_paths() {
+  local -a paths=("$@")
+  local old_ifs="$IFS"
+
+  IFS=':'
+  printf '%s' "${paths[*]}"
+  IFS="$old_ifs"
+}
+
+default_nfc_watch_paths() {
+  local -a NFC_DEFAULT_WATCH_PATHS
+  local candidate
+
+  NFC_DEFAULT_WATCH_PATHS=()
+
+  append_existing_watch_path "$HOME/Desktop"
+  append_existing_watch_path "$HOME/Documents"
+  append_existing_watch_path "$HOME/Downloads"
+
+  for candidate in "$HOME/Library/CloudStorage"/*(N-/); do
+    append_existing_watch_path "$candidate"
+  done
+
+  append_existing_watch_path "$HOME/Library/Mobile Documents/com~apple~CloudDocs"
+
+  for candidate in \
+    "$HOME"/Google\ Drive*(N-/) \
+    "$HOME"/OneDrive*(N-/) \
+    "$HOME"/Dropbox*(N-/) \
+    "$HOME"/Box*(N-/) \
+    "$HOME"/Creative\ Cloud\ Files*(N-/) \
+    "$HOME"/Nextcloud*(N-/) \
+    "$HOME"/SynologyDrive*(N-/); do
+    append_existing_watch_path "$candidate"
+  done
+
+  join_colon_paths "${NFC_DEFAULT_WATCH_PATHS[@]}"
+}
+
+resolve_nfc_watch_paths() {
+  local paths_raw
+
+  if [[ -n "${NFC_WATCH_PATHS:-}" ]]; then
+    paths_raw="$NFC_WATCH_PATHS"
+  else
+    paths_raw="$(default_nfc_watch_paths)"
+  fi
+
+  if [[ -n "${NFC_EXTRA_WATCH_PATHS:-}" ]]; then
+    if [[ -n "$paths_raw" ]]; then
+      paths_raw="$paths_raw:$NFC_EXTRA_WATCH_PATHS"
+    else
+      paths_raw="$NFC_EXTRA_WATCH_PATHS"
+    fi
+  fi
+
+  printf '%s' "$paths_raw"
 }
 
 backup_path() {
@@ -367,6 +444,74 @@ run_nfd2nfc_plist_self_test() {
   [[ -s "$plist" ]] || die "nfd2nfc plist self-test produced an empty plist."
   /usr/bin/grep -q "/opt/homebrew/bin/nfd2nfc-watcher" "$plist" || die "nfd2nfc plist self-test did not write the watcher path."
   /bin/rm -rf "$temp_dir"
+}
+
+assert_path_list_contains() {
+  local list="$1"
+  local path="$2"
+
+  [[ ":$list:" == *":$path:"* ]] || die "Expected watch path is missing: $path"
+}
+
+run_nfc_watch_path_self_test() {
+  local temp_home
+  local old_home="$HOME"
+  local old_watch_paths="${NFC_WATCH_PATHS-}"
+  local old_watch_paths_set="${NFC_WATCH_PATHS+x}"
+  local old_extra_paths="${NFC_EXTRA_WATCH_PATHS-}"
+  local old_extra_paths_set="${NFC_EXTRA_WATCH_PATHS+x}"
+  local paths_raw
+  local google_drive_target
+
+  temp_home="$(/usr/bin/mktemp -d)"
+  HOME="$temp_home"
+  unset NFC_WATCH_PATHS
+  unset NFC_EXTRA_WATCH_PATHS
+
+  /bin/mkdir -p \
+    "$HOME/Desktop" \
+    "$HOME/Documents" \
+    "$HOME/Downloads" \
+    "$HOME/Library/CloudStorage/GoogleDrive-person@example.com" \
+    "$HOME/Library/CloudStorage/OneDrive-AidALL" \
+    "$HOME/Library/Mobile Documents/com~apple~CloudDocs" \
+    "$HOME/Dropbox" \
+    "$HOME/Custom Cloud"
+  /bin/ln -s "$HOME/Library/CloudStorage/GoogleDrive-person@example.com" "$HOME/Google Drive"
+
+  paths_raw="$(resolve_nfc_watch_paths)"
+  assert_path_list_contains "$paths_raw" "$(/bin/realpath "$HOME/Desktop")"
+  assert_path_list_contains "$paths_raw" "$(/bin/realpath "$HOME/Documents")"
+  assert_path_list_contains "$paths_raw" "$(/bin/realpath "$HOME/Downloads")"
+  assert_path_list_contains "$paths_raw" "$(/bin/realpath "$HOME/Library/CloudStorage/GoogleDrive-person@example.com")"
+  assert_path_list_contains "$paths_raw" "$(/bin/realpath "$HOME/Library/CloudStorage/OneDrive-AidALL")"
+  assert_path_list_contains "$paths_raw" "$(/bin/realpath "$HOME/Library/Mobile Documents/com~apple~CloudDocs")"
+  assert_path_list_contains "$paths_raw" "$(/bin/realpath "$HOME/Dropbox")"
+  google_drive_target="$(/bin/realpath "$HOME/Library/CloudStorage/GoogleDrive-person@example.com")"
+  [[ "$(printf '%s' "$paths_raw" | /usr/bin/grep -o "$google_drive_target" | /usr/bin/wc -l | /usr/bin/tr -d ' ')" == "1" ]] \
+    || die "Google Drive symlink and CloudStorage target should not be added twice."
+
+  NFC_EXTRA_WATCH_PATHS="$HOME/Custom Cloud"
+  paths_raw="$(resolve_nfc_watch_paths)"
+  assert_path_list_contains "$paths_raw" "$HOME/Custom Cloud"
+
+  NFC_WATCH_PATHS="$HOME/Downloads"
+  unset NFC_EXTRA_WATCH_PATHS
+  paths_raw="$(resolve_nfc_watch_paths)"
+  [[ "$paths_raw" == "$HOME/Downloads" ]] || die "NFC_WATCH_PATHS should override default watch paths."
+
+  HOME="$old_home"
+  if [[ -n "$old_watch_paths_set" ]]; then
+    NFC_WATCH_PATHS="$old_watch_paths"
+  else
+    unset NFC_WATCH_PATHS
+  fi
+  if [[ -n "$old_extra_paths_set" ]]; then
+    NFC_EXTRA_WATCH_PATHS="$old_extra_paths"
+  else
+    unset NFC_EXTRA_WATCH_PATHS
+  fi
+  /bin/rm -rf "$temp_home"
 }
 
 install_formula() {
@@ -663,12 +808,13 @@ configure_nfd2nfc_watcher() {
 
   info "Configuring nfd2nfc background watcher"
 
-  local paths_raw="${NFC_WATCH_PATHS:-$HOME/Desktop:$HOME/Documents:$HOME/Downloads}"
+  local paths_raw
   local path
   local expanded
   local display_path
   local existing_json
   local -a nfc_watch_path_array
+  paths_raw="$(resolve_nfc_watch_paths)"
   nfc_watch_path_array=("${(@s/:/)paths_raw}")
 
   remove_redundant_nfd2nfc_config "$nfd2nfc_bin" "$jq_bin"
@@ -957,7 +1103,7 @@ ROSETTAINTRO
     cat <<'NFCINTRO'
 
 macOS에서 작성한 한글 파일명은 Windows/Linux 등 다른 OS에서 자소분리되어 보일 수 있습니다.
-이를 줄이기 위해 nfd2nfc를 설치하고 Desktop, Documents, Downloads 폴더를 상시 감시해 NFC 파일명으로 정리합니다.
+이를 줄이기 위해 nfd2nfc를 설치하고 Desktop, Documents, Downloads 및 감지된 클라우드 동기화 폴더를 상시 감시해 NFC 파일명으로 정리합니다.
 NFCINTRO
     if prompt_yes_no "nfd2nfc를 설치하고 상주 감시 기능을 켜는 데 동의하십니까?" "y"; then
       INSTALL_NFC_TOOLS=1
@@ -1007,6 +1153,7 @@ SELF_TEST_PATH_REPAIR=0
 SELF_TEST_ZSHRC_TEMPLATE=0
 SELF_TEST_NFD2NFC_PATH=0
 SELF_TEST_NFD2NFC_PLIST=0
+SELF_TEST_NFC_WATCH_PATHS=0
 
 if [[ -n "${ROSETTA+x}" ]]; then
   ROSETTA_CHOICE_SET=1
@@ -1105,6 +1252,9 @@ while [[ $# -gt 0 ]]; do
     --self-test-nfd2nfc-plist)
       SELF_TEST_NFD2NFC_PLIST=1
       ;;
+    --self-test-nfc-watch-paths)
+      SELF_TEST_NFC_WATCH_PATHS=1
+      ;;
     -h | --help)
       usage
       exit 0
@@ -1134,6 +1284,11 @@ fi
 
 if [[ "$SELF_TEST_NFD2NFC_PLIST" == "1" ]]; then
   run_nfd2nfc_plist_self_test
+  exit 0
+fi
+
+if [[ "$SELF_TEST_NFC_WATCH_PATHS" == "1" ]]; then
+  run_nfc_watch_path_self_test
   exit 0
 fi
 
@@ -1330,7 +1485,7 @@ print_installation_plan() {
   local posh_theme_display
   local watch_paths_display
   posh_theme_display="$(home_relative_path "$POSH_THEME")"
-  watch_paths_display="$(home_relative_path_list "${NFC_WATCH_PATHS:-$HOME/Desktop:$HOME/Documents:$HOME/Downloads}")"
+  watch_paths_display="$(home_relative_path_list "$(resolve_nfc_watch_paths)")"
 
   if [[ "$INSTALL_NFC_TOOLS" == "1" ]]; then
     selected_formulae+=("${NFC_FORMULAE[@]}")

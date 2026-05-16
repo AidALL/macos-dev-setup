@@ -44,6 +44,9 @@ jobs:
       - name: Check nfd2nfc LaunchAgent plist generation
         run: PATH=/opt/homebrew/bin /bin/zsh install-dev-environment.sh --self-test-nfd2nfc-plist
 
+      - name: Check NFC cloud watch path detection
+        run: /bin/zsh install-dev-environment.sh --self-test-nfc-watch-paths
+
       - name: Check interactive Android decline
         run: |
           expect <<'EXPECT' | tee /tmp/macos-dev-setup-interactive.log

@@ -107,13 +107,22 @@ ROSETTA=0 ./install-dev-environment.sh --yes
 
 ## 한글 파일명 자소분리 대응
 
-macOS에서 작성한 한글 파일명은 Windows/Linux 등 다른 OS에서 자소분리되어 보일 수 있습니다. 이 스크립트는 이를 줄이기 위해 `nfd2nfc`를 설치하고, 사용자가 동의하면 `Desktop`, `Documents`, `Downloads` 폴더를 상시 감시해 NFC 파일명으로 정리합니다.
+macOS에서 작성한 한글 파일명은 Windows/Linux 등 다른 OS에서 자소분리되어 보일 수 있습니다. 이 스크립트는 이를 줄이기 위해 `nfd2nfc`를 설치하고, 사용자가 동의하면 `Desktop`, `Documents`, `Downloads`와 감지된 클라우드 동기화 폴더를 상시 감시해 NFC 파일명으로 정리합니다.
+
+기본 감시 대상은 실제 폴더가 존재할 때만 추가됩니다.
+
+- `~/Desktop`
+- `~/Documents`
+- `~/Downloads`
+- `~/Library/CloudStorage/*` 아래의 Google Drive, OneDrive, Dropbox, Box 등 File Provider 기반 클라우드 폴더
+- iCloud Drive: `~/Library/Mobile Documents/com~apple~CloudDocs`
+- 레거시 클라우드 폴더: `~/Google Drive*`, `~/OneDrive*`, `~/Dropbox*`, `~/Box*`, `~/Creative Cloud Files*`, `~/Nextcloud*`, `~/SynologyDrive*`
 
 인터랙티브 실행 시 다음처럼 안내하고 동의를 받습니다.
 
 ```text
 macOS에서 작성한 한글 파일명은 Windows/Linux 등 다른 OS에서 자소분리되어 보일 수 있습니다.
-이를 줄이기 위해 nfd2nfc를 설치하고 Desktop, Documents, Downloads 폴더를 상시 감시해 NFC 파일명으로 정리합니다.
+이를 줄이기 위해 nfd2nfc를 설치하고 Desktop, Documents, Downloads 및 감지된 클라우드 동기화 폴더를 상시 감시해 NFC 파일명으로 정리합니다.
 nfd2nfc를 설치하고 상주 감시 기능을 켜는 데 동의하십니까? [Y/n]
 ```
 
@@ -133,6 +142,12 @@ NFC_WATCH=0 ./install-dev-environment.sh --yes
 
 ```bash
 NFC_WATCH_PATHS="$HOME/Downloads:$HOME/Work" ./install-dev-environment.sh --yes
+```
+
+기본 감시 대상은 유지하면서 별도 동기화 폴더만 추가하려면:
+
+```bash
+NFC_EXTRA_WATCH_PATHS="$HOME/Work Drive:$HOME/Team Sync" ./install-dev-environment.sh --yes
 ```
 
 기존 파일명을 직접 점검하고 변환할 수도 있습니다.
